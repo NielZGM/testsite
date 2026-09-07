@@ -239,16 +239,19 @@
   .legend .sw.av{background:var(--panel-2);}
   .legend .sw.sel{background:var(--crimson-bright);}
   .legend .sw.tk{background:var(--dim);}
+  .legend .sw.held{background:transparent;border-color:#c98a1a;border-style:dashed;}
 
   .theater{border:1px solid var(--line);background:var(--panel-2);padding:26px 18px;overflow-x:auto;}
   .screen-lbl{text-align:center;font-family:'Anton';font-size:calc(11px * var(--fs-scale));letter-spacing:8px;color:var(--muted);
-    border-bottom:3px solid var(--crimson-dim);padding-bottom:10px;margin-bottom:24px;}
-  .seat-row{display:flex;align-items:center;gap:10px;margin-bottom:7px;justify-content:center;}
-  .row-lbl{width:16px;font-size:calc(10px * var(--fs-scale));color:var(--muted);text-align:right;flex:none;}
-  .seats{display:flex;gap:5px;}
+    border-top:3px solid var(--crimson-dim);padding-top:10px;margin-top:22px;}
+  .seat-map-inner{display:inline-flex;flex-direction:column;gap:5px;min-width:max-content;margin:0 auto;}
+  .seat-row{display:flex;align-items:center;gap:8px;}
+  .row-lbl{width:14px;font-size:calc(9px * var(--fs-scale));color:var(--muted);text-align:center;flex:none;}
+  .seat-clusters{display:flex;align-items:center;gap:14px;}
+  .seat-cluster{display:flex;gap:3px;}
   .seat{
-    width:26px;height:22px;border:1px solid var(--line);background:var(--panel);
-    color:var(--muted);font-size:calc(8px * var(--fs-scale));display:flex;align-items:center;justify-content:center;
+    width:19px;height:17px;border:1px solid var(--line);background:var(--panel);
+    color:var(--muted);font-size:calc(7px * var(--fs-scale));display:flex;align-items:center;justify-content:center;
     cursor:pointer;transition:.1s;flex:none;
   }
   .seat:hover:not(.taken):not(.selected){border-color:var(--crimson-bright);color:var(--ink);}
@@ -490,11 +493,12 @@
     <div class="legend">
       <span><i class="sw av"></i>Open</span>
       <span><i class="sw sel"></i>Your pick</span>
+      <span><i class="sw held"></i>Held (checking out)</span>
       <span><i class="sw tk"></i>Assigned</span>
     </div>
     <div class="theater">
-      <div class="screen-lbl">◂ SCREEN ▸</div>
       <div id="seat-map"></div>
+      <div class="screen-lbl">◂ SCREEN ▸</div>
     </div>
     <div class="count-bar">
       <div>Selected: <b id="sel-count">0</b> / <b id="need-count-2">0</b></div>
@@ -666,8 +670,35 @@
 </div>
 
 <script>
-const ROWS = ['F','G','H','J','K'];
-const SEATS_PER_ROW = 16;
+/* ---------------------------------------------------------------------
+   SEAT PLAN — transcribed from the venue's real seat chart photo.
+   Three blocks per row (left / center / right) separated by aisles,
+   read as clusters of contiguous seat numbers. Rows Q and N/P are
+   partial (they don't run the full width of the house), and the front
+   rows (A–D) taper in on both wings — all matched as closely as the
+   photo allowed. Row letters I and O are skipped, matching the venue's
+   own convention. If any of these numbers are off, tell me the row and
+   I'll correct just that line.
+--------------------------------------------------------------------- */
+function seatRange(a,b){ const arr=[]; for(let i=a;i<=b;i++) arr.push(i); return arr; }
+
+const SEAT_ROWS = [
+  { label:'Q', clusters: [ seatRange(32,36) ] },
+  { label:'P', clusters: [ seatRange(8,10), seatRange(11,13), seatRange(26,32) ] },
+  { label:'N', clusters: [ seatRange(1,13) ] },
+  { label:'M', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'L', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'K', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'J', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'H', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'G', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'F', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'E', clusters: [ seatRange(1,13), seatRange(14,25), seatRange(26,38) ] },
+  { label:'D', clusters: [ seatRange(3,13),  seatRange(14,25), seatRange(26,35) ] },
+  { label:'C', clusters: [ seatRange(4,13),  seatRange(14,25), seatRange(26,34) ] },
+  { label:'B', clusters: [ seatRange(6,13),  seatRange(14,25), seatRange(26,33) ] },
+  { label:'A', clusters: [ seatRange(7,13),  seatRange(14,25), seatRange(26,32) ] },
+];
 const STORAGE_KEY = 'moa-imax-event';
 
 let eventData = { seats:{}, registrations:{}, orders:{}, holds:{}, queue:{active:{},waiting:{}} };
@@ -814,7 +845,9 @@ function resendReceiptEmail(){
 
 function allSeatIds(){
   const ids=[];
-  ROWS.forEach(r=>{ for(let i=1;i<=SEATS_PER_ROW;i++) ids.push(r+i); });
+  SEAT_ROWS.forEach(row=>{
+    row.clusters.forEach(cluster=>{ cluster.forEach(n=>ids.push(row.label+n)); });
+  });
   return ids;
 }
 
@@ -1014,13 +1047,16 @@ async function releaseActiveSlot(){
 function renderMiniMap(){
   const host = document.getElementById('mini-map-rows');
   host.innerHTML='';
-  ROWS.forEach(r=>{
-    const row=document.createElement('div'); row.className='row';
-    for(let i=1;i<=SEATS_PER_ROW;i++){
-      const s=document.createElement('div'); s.className='seat'+(seatTaken(r+i)?' b':'');
-      row.appendChild(s);
-    }
-    host.appendChild(row);
+  SEAT_ROWS.forEach(row=>{
+    const rowEl=document.createElement('div'); rowEl.className='row';
+    row.clusters.forEach(cluster=>{
+      cluster.forEach(n=>{
+        const id = row.label+n;
+        const s=document.createElement('div'); s.className='seat'+(seatTaken(id)?' b':'');
+        rowEl.appendChild(s);
+      });
+    });
+    host.appendChild(rowEl);
   });
   const left = allSeatIds().length - Object.keys(eventData.seats).length;
   document.getElementById('brief-seats-left').textContent = left + ' seats open of ' + allSeatIds().length;
@@ -1029,24 +1065,37 @@ function renderMiniMap(){
 function renderSeatMap(){
   const host = document.getElementById('seat-map');
   host.innerHTML='';
-  ROWS.forEach(r=>{
+  const inner = document.createElement('div');
+  inner.className = 'seat-map-inner';
+  SEAT_ROWS.forEach(row=>{
     const rowEl = document.createElement('div'); rowEl.className='seat-row';
-    const lbl = document.createElement('div'); lbl.className='row-lbl'; lbl.textContent=r;
-    rowEl.appendChild(lbl);
-    const seatsEl = document.createElement('div'); seatsEl.className='seats';
-    for(let i=1;i<=SEATS_PER_ROW;i++){
-      const id = r+i;
-      const btn = document.createElement('div');
-      btn.className='seat';
-      btn.textContent = i;
-      if(seatTaken(id)) btn.classList.add(seatHeldByOther(id) ? 'held' : 'taken');
-      if(draft.selected.includes(id)) btn.classList.add('selected');
-      btn.onclick = ()=>toggleSeat(id);
-      seatsEl.appendChild(btn);
-    }
-    rowEl.appendChild(seatsEl);
-    host.appendChild(rowEl);
+    const lblL = document.createElement('div'); lblL.className='row-lbl'; lblL.textContent=row.label;
+    rowEl.appendChild(lblL);
+
+    const clustersEl = document.createElement('div'); clustersEl.className='seat-clusters';
+    row.clusters.forEach(cluster=>{
+      const clusterEl = document.createElement('div'); clusterEl.className='seat-cluster';
+      cluster.forEach(n=>{
+        const id = row.label+n;
+        const btn = document.createElement('div');
+        btn.className='seat';
+        btn.textContent = n;
+        if(seatTaken(id)) btn.classList.add(seatHeldByOther(id) ? 'held' : 'taken');
+        if(draft.selected.includes(id)) btn.classList.add('selected');
+        btn.onclick = ()=>toggleSeat(id);
+        clusterEl.appendChild(btn);
+      });
+      clustersEl.appendChild(clusterEl);
+    });
+    rowEl.appendChild(clustersEl);
+
+    const lblR = document.createElement('div'); lblR.className='row-lbl'; lblR.textContent=row.label;
+    rowEl.appendChild(lblR);
+
+    inner.appendChild(rowEl);
   });
+  host.appendChild(inner);
+
   document.getElementById('sel-count').textContent = draft.selected.length;
   document.getElementById('need-count').textContent = draft.count;
   document.getElementById('need-count-2').textContent = draft.count;
