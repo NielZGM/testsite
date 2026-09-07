@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   :root{
     /* dark theme (default) */
@@ -64,6 +65,14 @@
     animation:none !important;
   }
   body.a11y-reduce-motion .stamp{transform:none;}
+  /* slow, deliberate crossfade when switching cabin lights (dark/light) —
+     scoped to a short-lived class the JS adds only during the actual toggle,
+     so normal hover/press interactions elsewhere stay snappy */
+  body.theme-transitioning, body.theme-transitioning *{
+    transition-property: background-color, background, color, border-color, box-shadow, fill, stroke !important;
+    transition-duration: .7s !important;
+    transition-timing-function: ease !important;
+  }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;color:var(--ink);}
   body{
@@ -245,6 +254,7 @@
   .seat:hover:not(.taken):not(.selected){border-color:var(--crimson-bright);color:var(--ink);}
   .seat.selected{background:var(--crimson-bright);border-color:var(--crimson-bright);color:#fff;}
   .seat.taken{background:var(--dim);color:var(--dim);cursor:not-allowed;border-color:var(--dim);}
+  .seat.held{background:transparent;color:#c98a1a;cursor:not-allowed;border-color:#c98a1a;border-style:dashed;opacity:.75;}
   .count-bar{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:16px;border-top:1px dotted var(--line);font-size:calc(11.5px * var(--fs-scale));color:var(--muted);flex-wrap:wrap;gap:10px;}
   .count-bar b{color:var(--ink);}
 
@@ -333,6 +343,36 @@
   .receipt .r-total{margin-top:10px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
   .receipt .r-total .amt{font-family:'Anton';font-size:calc(22px * var(--fs-scale));color:var(--crimson-bright);}
   .paid-pill{font-size:calc(9.5px * var(--fs-scale));letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border:1px solid var(--ok);color:var(--ok);display:inline-block;}
+
+  .hold-banner{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    border:1px dashed #c98a1a;background:var(--panel-2);padding:10px 14px;margin-bottom:20px;
+    font-size:calc(11.5px * var(--fs-scale));color:var(--muted);}
+  .hold-banner b{color:#c98a1a;font-family:'Anton';font-size:calc(15px * var(--fs-scale));letter-spacing:1px;}
+
+  /* multi-ticket dossier switcher */
+  .tk-switcher{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;
+    border:1px solid var(--line);background:var(--panel-2);padding:8px 12px;}
+  .tk-switcher button{
+    background:transparent;border:1px solid var(--line);color:var(--ink);
+    font-family:'IBM Plex Mono';font-size:calc(13px * var(--fs-scale));width:30px;height:30px;cursor:pointer;
+  }
+  .tk-switcher button:disabled{opacity:.3;cursor:not-allowed;}
+  .tk-switcher .lbl{font-size:calc(11px * var(--fs-scale));letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:center;flex:1;}
+
+  /* queue / waiting room */
+  .queue-box{display:flex;flex-wrap:wrap;gap:22px;align-items:center;border:1px solid var(--line);
+    background:var(--panel-2);padding:26px;margin-bottom:20px;}
+  .queue-position-wrap{text-align:center;min-width:130px;}
+  .queue-eyebrow{font-size:calc(9.5px * var(--fs-scale));letter-spacing:2px;color:var(--muted);text-transform:uppercase;}
+  .queue-position{font-family:'Anton';font-size:calc(48px * var(--fs-scale));color:var(--crimson-bright);line-height:1.1;}
+  .queue-meta{flex:1;min-width:200px;font-size:calc(12px * var(--fs-scale));}
+  .queue-meta div{display:flex;justify-content:space-between;border-top:1px dotted var(--line);padding:8px 0;}
+  .queue-meta div:first-child{border-top:none;}
+  .queue-meta .k{color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-size:calc(10px * var(--fs-scale));}
+  .queue-pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--crimson-bright);
+    margin-right:6px;animation:queuePulse 1.4s infinite;}
+  body.a11y-reduce-motion .queue-pulse{animation:none;}
+  @keyframes queuePulse{0%,100%{opacity:1;}50%{opacity:.25;}}
 </style>
 </head>
 <body>
@@ -463,10 +503,34 @@
     <div class="error" id="seats-error"></div>
   </section>
 
+  <!-- QUEUE / WAITING ROOM -->
+  <section class="panel" id="panel-queue">
+    <h2 class="section-title">Standing By</h2>
+    <p class="desc"><span class="queue-pulse"></span>Seat assignment is at capacity right now — you're in line and will be let through automatically the moment a spot opens. Keep this tab open; no need to refresh.</p>
+    <div class="queue-box">
+      <div class="queue-position-wrap">
+        <div class="queue-eyebrow">Your Position</div>
+        <div class="queue-position" id="queue-position">—</div>
+      </div>
+      <div class="queue-meta">
+        <div><span class="k">People waiting</span><span id="queue-total-waiting">0</span></div>
+        <div><span class="k">Active in seat selection</span><span id="queue-active">0 / 0</span></div>
+      </div>
+    </div>
+    <div class="cta-row">
+      <button class="btn ghost" onclick="checkQueueNow()">Check Now</button>
+    </div>
+  </section>
+
   <!-- STEP 4: PAYMENT -->
   <section class="panel" id="panel-payment">
     <h2 class="section-title">Payment</h2>
     <p class="desc">Pick a package, scan the QR with your bank or e-wallet app (any InstaPay-enabled account works), send the exact amount, then log your reference number below. Your Dossier is issued the moment it's confirmed.</p>
+
+    <div class="hold-banner">
+      <span>Your seat(s) are held while you pay.</span>
+      <span>Time left: <b id="hold-timer">—</b></span>
+    </div>
 
     <div class="pkg-grid" id="pkg-grid">
       <div class="pkg-card" data-pkg="ticket" onclick="selectPackage('ticket')">
@@ -535,14 +599,21 @@
   <!-- STEP 5: DOSSIER -->
   <section class="panel" id="panel-dossier">
     <h2 class="section-title">Your Dossier</h2>
-    <p class="desc">Screenshot this or keep the email — Command scans the code at the door, or looks you up by email if the code's unreadable.</p>
+    <p class="desc">Each seat gets its own boarding pass — screenshot each one or keep the emails. Command scans the code at the door, or looks you up by email if the code's unreadable.</p>
+
+    <div class="tk-switcher" id="tk-switcher" style="display:none;">
+      <button id="tk-prev" onclick="dossierNav(-1)" aria-label="Previous ticket">‹</button>
+      <div class="lbl" id="tk-switch-label">Ticket 1 of 1</div>
+      <button id="tk-next" onclick="dossierNav(1)" aria-label="Next ticket">›</button>
+    </div>
+
     <div class="ticket">
       <div class="notch"></div><div class="notch b"></div>
       <div class="ticket-main">
         <div class="eyebrow">Boarding Authorization</div>
         <h3 id="tk-name">—</h3>
         <div class="tgrid">
-          <div><div class="k">Seats</div><div id="tk-seats">—</div></div>
+          <div><div class="k">Seat</div><div id="tk-seat">—</div></div>
           <div><div class="k">Venue</div><div>SM MOA IMAX</div></div>
           <div><div class="k">Email</div><div id="tk-email">—</div></div>
           <div><div class="k">Status</div><div class="status-pill" id="tk-status">Not checked in</div></div>
@@ -564,12 +635,12 @@
         <span class="amt" id="rc-total">₱0.00</span>
       </div>
     </div>
+    <p class="desc" id="email-status" style="margin-top:12px;color:var(--muted);">—</p>
 
     <div class="cta-row">
-      <button class="btn ghost" onclick="emailReceipt()">Email My Receipt</button>
+      <button class="btn ghost" onclick="resendReceiptEmail()">Resend Receipt Email</button>
       <button class="btn ghost" onclick="goTo('brief')">Back to Briefing</button>
     </div>
-    <p class="desc" style="margin-top:12px;">“Email My Receipt” opens your default mail app with the receipt pre-filled, addressed to the email you registered with — send it to keep a copy for your records.</p>
   </section>
 
   <!-- STEP 6: COMMAND -->
@@ -585,7 +656,7 @@
       <input type="text" id="cmd-search" placeholder="Search by name, email, or ticket ID…" oninput="renderManifest()" />
     </div>
     <table id="manifest-table">
-      <thead><tr><th>Name</th><th>Email</th><th>Seats</th><th>Ticket ID</th><th>Package</th><th>Paid</th><th>Ref #</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Seat</th><th>Ticket ID</th><th>Package</th><th>Seat Price</th><th>Ref #</th><th>Status</th><th></th></tr></thead>
       <tbody id="manifest-body"></tbody>
     </table>
     <div class="empty-note" id="manifest-empty" style="display:none;">No registrations yet.</div>
@@ -599,10 +670,52 @@ const ROWS = ['F','G','H','J','K'];
 const SEATS_PER_ROW = 16;
 const STORAGE_KEY = 'moa-imax-event';
 
-let eventData = { seats:{}, registrations:{} };
+let eventData = { seats:{}, registrations:{}, orders:{}, holds:{}, queue:{active:{},waiting:{}} };
 let myTicketIds = [];
-let draft = { name:'', email:'', phone:'', count:2, selected:[], pkg:null, refno:'', sender:'' };
-let currentTicket = null;
+let draft = { name:'', email:'', phone:'', count:2, selected:[], pkg:null, refno:'', sender:'', holdExpiresAt:null };
+let currentOrder = null;
+let currentTicketIdx = 0;
+
+/* ---------------------------------------------------------------------
+   HIGH-TRAFFIC HANDLING
+   Two independent mitigations, both running on the shared client-side
+   storage (no real backend, so treat these as best-effort — see notes):
+
+   1. SEAT HOLDS — the moment someone leaves the seat map for Payment,
+      their chosen seats are reserved (HOLD_DURATION_MS) so nobody else
+      can grab them mid-checkout. Expires automatically if payment isn't
+      completed in time.
+
+   2. VIRTUAL QUEUE — caps how many people can be actively viewing/
+      picking seats at once (MAX_ACTIVE). Past that cap, new arrivals
+      land in a waiting room with a live position count and get let in
+      as active slots free up (session heartbeat + timeout).
+
+   LIMITATION: window.storage is "last write wins" with no atomic
+   transactions, so under true simultaneous writes a rare double-grab
+   is still possible (issueDossier() re-checks seat availability right
+   before committing as a final safety net). For a real public on-sale
+   at meaningful scale, put a real backend/database behind this.
+--------------------------------------------------------------------- */
+const HOLD_DURATION_MS   = 8 * 60 * 1000;   // how long a seat stays held during checkout
+const MAX_ACTIVE          = 150;            // concurrent shoppers allowed in seat selection
+const ACTIVE_TIMEOUT_MS   = 45 * 1000;      // heartbeat staleness cutoff (session presumed gone)
+const HEARTBEAT_MS        = 15 * 1000;      // how often an active session refreshes its slot
+const QUEUE_POLL_MS       = 4 * 1000;       // how often a waiting session checks for promotion
+
+const SESSION_KEY = 'philmary-session-id';
+let sessionId = null;
+(function initSession(){
+  try{
+    sessionId = localStorage.getItem(SESSION_KEY);
+    if(!sessionId){
+      sessionId = 'S-' + Math.random().toString(36).slice(2,10);
+      localStorage.setItem(SESSION_KEY, sessionId);
+    }
+  }catch(e){ sessionId = 'S-' + Math.random().toString(36).slice(2,10); }
+})();
+
+let heartbeatTimer = null, queuePollTimer = null, holdCountdownTimer = null;
 
 const PACKAGES = {
   ticket:  { label:'Ticket Only',        unit:650  },
@@ -612,6 +725,91 @@ const PACKAGES = {
 
 function peso(n){
   return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+
+/* ---------------------------------------------------------------------
+   EMAIL SENDING (EmailJS — https://www.emailjs.com)
+   Free client-side email API, no backend server needed.
+
+   SETUP (one-time, ~10 min):
+   1. Create a free account at emailjs.com.
+   2. Email Services -> Add New Service -> connect your Gmail (or your
+      preferred sender). Copy its Service ID into EMAILJS_SERVICE_ID below.
+   3. Account -> General -> copy your Public Key into EMAILJS_PUBLIC_KEY.
+   4. Email Templates -> create a template for the CLIENT receipt.
+      Use these variables in the template body (match names exactly):
+        {{to_email}} {{to_name}} {{ticket_id}} {{receipt_id}}
+        {{package}} {{seats}} {{amount}} {{refno}} {{sender}}
+      Copy its Template ID into EMAILJS_TEMPLATE_CLIENT.
+   5. Create a second template for the OPERATOR copy (can reuse the same
+      variables, plus you may add {{is_sponsor}}). Copy its Template ID
+      into EMAILJS_TEMPLATE_OPERATOR.
+   6. Set OPERATOR_EMAIL below to the inbox that should get a copy of
+      every payment.
+   7. Replace every "YOUR_..." placeholder below with your real values.
+
+   Until these are filled in, the page will safely skip real sending and
+   fall back to a "not configured" note in the status line — nothing
+   will break, it just won't email anyone yet.
+--------------------------------------------------------------------- */
+const EMAILJS_PUBLIC_KEY       = 'YOUR_PUBLIC_KEY';
+const EMAILJS_SERVICE_ID       = 'YOUR_SERVICE_ID';
+const EMAILJS_TEMPLATE_CLIENT  = 'YOUR_CLIENT_TEMPLATE_ID';
+const EMAILJS_TEMPLATE_OPERATOR= 'YOUR_OPERATOR_TEMPLATE_ID';
+const OPERATOR_EMAIL           = 'operator@example.com';
+
+function emailConfigured(){
+  return EMAILJS_PUBLIC_KEY.indexOf('YOUR_') !== 0
+      && EMAILJS_SERVICE_ID.indexOf('YOUR_') !== 0
+      && EMAILJS_TEMPLATE_CLIENT.indexOf('YOUR_') !== 0
+      && EMAILJS_TEMPLATE_OPERATOR.indexOf('YOUR_') !== 0;
+}
+
+if(window.emailjs && emailConfigured()){
+  emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+}
+
+function receiptEmailParams(order, orderId, toEmail){
+  return {
+    to_email: toEmail,
+    to_name: order.name,
+    ticket_id: order.ticketIds.join(', '),
+    order_id: orderId,
+    receipt_id: order.receiptId,
+    package: order.packageLabel + (order.isSponsor ? ' (Sponsor)' : ''),
+    is_sponsor: order.isSponsor ? 'Yes' : 'No',
+    seats: order.seats.join(', '),
+    ticket_count: order.ticketIds.length,
+    amount: peso(order.amountPaid || 0),
+    refno: order.refno || '—',
+    sender: order.sender || order.name
+  };
+}
+
+async function sendReceiptEmails(order, orderId){
+  const status = document.getElementById('email-status');
+  if(!emailConfigured()){
+    status.textContent = 'Email sending isn’t configured yet — receipt is saved on this Dossier and in Command Check-In, but nothing was emailed.';
+    return;
+  }
+  status.textContent = 'Sending receipt email…';
+  try{
+    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_CLIENT,
+      receiptEmailParams(order, orderId, order.email));
+    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_OPERATOR,
+      receiptEmailParams(order, orderId, OPERATOR_EMAIL));
+    status.textContent = 'Receipt emailed to ' + order.email + ' and a copy sent to the operator.';
+  }catch(err){
+    console.error('EmailJS send failed', err);
+    status.textContent = 'Could not send the email automatically (' + (err && err.text ? err.text : 'network/config error') + '). Try “Resend Receipt Email”, or reach out and we’ll confirm manually.';
+  }
+}
+
+function resendReceiptEmail(){
+  if(!currentOrder) return;
+  const order = eventData.orders[currentOrder];
+  if(!order) return;
+  sendReceiptEmails(order, currentOrder);
 }
 
 function allSeatIds(){
@@ -631,6 +829,15 @@ async function loadEvent(){
   }
   if(!eventData.seats) eventData.seats = {};
   if(!eventData.registrations) eventData.registrations = {};
+  if(!eventData.orders) eventData.orders = {};
+  if(!eventData.holds) eventData.holds = {};
+  if(!eventData.queue) eventData.queue = { active:{}, waiting:{} };
+  // self-cleaning: drop expired holds and stale queue entries every load
+  const now = Date.now();
+  Object.keys(eventData.holds).forEach(id=>{
+    if(eventData.holds[id].expiresAt < now) delete eventData.holds[id];
+  });
+  pruneQueue(eventData.queue);
 }
 
 async function saveEvent(){
@@ -651,7 +858,158 @@ async function saveMyTickets(){
   try{ await window.storage.set('my-tickets', JSON.stringify(myTicketIds), false); }catch(e){}
 }
 
-function seatTaken(id){ return !!eventData.seats[id]; }
+/* ---- seat holds ---- */
+function seatTaken(id){
+  if(eventData.seats[id]) return true;
+  const h = eventData.holds && eventData.holds[id];
+  if(h && h.expiresAt > Date.now() && h.sessionId !== sessionId) return true;
+  return false;
+}
+function seatHeldByOther(id){
+  const h = eventData.holds && eventData.holds[id];
+  return !!(h && h.expiresAt > Date.now() && h.sessionId !== sessionId && !eventData.seats[id]);
+}
+
+async function releaseHolds(seatIds){
+  try{
+    await loadEvent();
+    eventData.holds = eventData.holds || {};
+    (seatIds || []).forEach(id=>{
+      if(eventData.holds[id] && eventData.holds[id].sessionId === sessionId) delete eventData.holds[id];
+    });
+    await saveEvent();
+  }catch(e){}
+}
+
+function stopHoldCountdown(){ if(holdCountdownTimer){ clearInterval(holdCountdownTimer); holdCountdownTimer=null; } }
+function startHoldCountdown(){
+  stopHoldCountdown();
+  updateHoldCountdown();
+  holdCountdownTimer = setInterval(updateHoldCountdown, 1000);
+}
+function updateHoldCountdown(){
+  const el = document.getElementById('hold-timer');
+  if(!el || !draft.holdExpiresAt) return;
+  const remain = draft.holdExpiresAt - Date.now();
+  if(remain <= 0){
+    stopHoldCountdown();
+    el.textContent = 'Expired';
+    document.getElementById('payment-error').textContent = 'Your seat hold expired, so those seats were released. Please reselect.';
+    const expiredSeats = draft.selected.slice();
+    releaseHolds(expiredSeats);
+    setTimeout(()=>{ draft.selected = []; showPanel('seats'); }, 1400);
+    return;
+  }
+  const m = Math.floor(remain / 60000);
+  const s = Math.floor((remain % 60000) / 1000);
+  el.textContent = m + ':' + String(s).padStart(2,'0');
+}
+
+/* ---- virtual queue / waiting room ---- */
+function pruneQueue(q){
+  const now = Date.now();
+  q.active = q.active || {};
+  q.waiting = q.waiting || {};
+  Object.keys(q.active).forEach(id=>{
+    if(now - q.active[id] > ACTIVE_TIMEOUT_MS) delete q.active[id];
+  });
+  Object.keys(q.waiting).forEach(id=>{
+    if(now - q.waiting[id].lastSeen > ACTIVE_TIMEOUT_MS) delete q.waiting[id];
+  });
+  return q;
+}
+function promoteFromWaiting(q){
+  let freeSlots = MAX_ACTIVE - Object.keys(q.active).length;
+  if(freeSlots <= 0) return q;
+  const order = Object.entries(q.waiting).sort((a,b)=>a[1].joinedAt-b[1].joinedAt);
+  for(const [id] of order){
+    if(freeSlots <= 0) break;
+    q.active[id] = Date.now();
+    delete q.waiting[id];
+    freeSlots--;
+  }
+  return q;
+}
+
+async function enterQueueOrSeats(){
+  await loadEvent();
+  promoteFromWaiting(eventData.queue);
+
+  const alreadyActive = !!eventData.queue.active[sessionId];
+  const hasRoom = Object.keys(eventData.queue.active).length < MAX_ACTIVE;
+
+  if(alreadyActive || hasRoom){
+    eventData.queue.active[sessionId] = Date.now();
+    delete eventData.queue.waiting[sessionId];
+    await saveEvent();
+    stopQueuePoll();
+    startHeartbeat();
+    showPanel('seats');
+    return;
+  }
+
+  if(!eventData.queue.waiting[sessionId]){
+    eventData.queue.waiting[sessionId] = { joinedAt: Date.now(), lastSeen: Date.now() };
+  } else {
+    eventData.queue.waiting[sessionId].lastSeen = Date.now();
+  }
+  await saveEvent();
+  showPanel('queue');
+  renderQueuePanel();
+  startQueuePoll();
+}
+
+function checkQueueNow(){ enterQueueOrSeats(); }
+
+function renderQueuePanel(){
+  const q = eventData.queue || { active:{}, waiting:{} };
+  const mine = q.waiting[sessionId];
+  const ahead = mine ? Object.values(q.waiting).filter(w=>w.joinedAt < mine.joinedAt).length : 0;
+  document.getElementById('queue-position').textContent = mine ? (ahead + 1) : '—';
+  document.getElementById('queue-total-waiting').textContent = Object.keys(q.waiting).length;
+  document.getElementById('queue-active').textContent = Object.keys(q.active).length + ' / ' + MAX_ACTIVE;
+}
+
+function stopHeartbeat(){ if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer=null; } }
+function startHeartbeat(){
+  stopHeartbeat();
+  heartbeatTimer = setInterval(async ()=>{
+    await loadEvent();
+    if(eventData.queue.active[sessionId] !== undefined || Object.keys(eventData.queue.active).length < MAX_ACTIVE){
+      eventData.queue.active[sessionId] = Date.now();
+      await saveEvent();
+    }
+  }, HEARTBEAT_MS);
+}
+
+function stopQueuePoll(){ if(queuePollTimer){ clearInterval(queuePollTimer); queuePollTimer=null; } }
+function startQueuePoll(){
+  stopQueuePoll();
+  queuePollTimer = setInterval(async ()=>{
+    await loadEvent();
+    promoteFromWaiting(eventData.queue);
+    if(eventData.queue.waiting[sessionId]) eventData.queue.waiting[sessionId].lastSeen = Date.now();
+    await saveEvent();
+    if(eventData.queue.active[sessionId]){
+      stopQueuePoll();
+      startHeartbeat();
+      showPanel('seats');
+      return;
+    }
+    renderQueuePanel();
+  }, QUEUE_POLL_MS);
+}
+
+async function releaseActiveSlot(){
+  stopHeartbeat();
+  stopQueuePoll();
+  try{
+    await loadEvent();
+    delete eventData.queue.active[sessionId];
+    delete eventData.queue.waiting[sessionId];
+    await saveEvent();
+  }catch(e){}
+}
 
 function renderMiniMap(){
   const host = document.getElementById('mini-map-rows');
@@ -681,7 +1039,7 @@ function renderSeatMap(){
       const btn = document.createElement('div');
       btn.className='seat';
       btn.textContent = i;
-      if(seatTaken(id)) btn.classList.add('taken');
+      if(seatTaken(id)) btn.classList.add(seatHeldByOther(id) ? 'held' : 'taken');
       if(draft.selected.includes(id)) btn.classList.add('selected');
       btn.onclick = ()=>toggleSeat(id);
       seatsEl.appendChild(btn);
@@ -723,10 +1081,22 @@ function submitEnlist(){
   goTo('seats');
 }
 
-function proceedToPayment(){
+async function proceedToPayment(){
+  await loadEvent(); // refresh right before holding, to avoid racing another operative
+  const conflict = draft.selected.some(seatTaken);
+  if(conflict){
+    document.getElementById('seats-error').textContent = 'One of your seats was just taken. Reselect.';
+    renderSeatMap();
+    return;
+  }
+  const expiresAt = Date.now() + HOLD_DURATION_MS;
+  draft.selected.forEach(id=>{ eventData.holds[id] = { sessionId, expiresAt }; });
+  draft.holdExpiresAt = expiresAt;
+  await saveEvent();
   document.getElementById('nav-payment').disabled = false;
   updatePaySummary();
-  goTo('payment');
+  startHoldCountdown();
+  showPanel('payment');
 }
 
 function selectPackage(key){
@@ -768,37 +1138,59 @@ async function issueDossier(){
   await loadEvent(); // refresh right before locking, to avoid racing another operative
   const conflict = draft.selected.some(seatTaken);
   if(conflict){
-    document.getElementById('seats-error').textContent = 'One of your seats was just taken. Reselect.';
-    renderSeatMap();
+    document.getElementById('payment-error').textContent = 'One of your seats was just taken. Please head back and reselect.';
     return;
   }
-  const ticketId = 'PHM-' + Math.random().toString(36).slice(2,6).toUpperCase() + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
+  stopHoldCountdown();
+  const orderId = 'ORD-' + Math.random().toString(36).slice(2,6).toUpperCase() + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
   const receiptId = 'RCPT-' + Math.random().toString(36).slice(2,6).toUpperCase() + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
   const pkg = PACKAGES[draft.pkg] || { label:'—', unit:0 };
-  const amountPaid = pkg.unit * draft.count;
-  draft.selected.forEach(id=>{ eventData.seats[id] = { ticketId, name: draft.name }; });
-  eventData.registrations[ticketId] = {
+  const totalAmount = pkg.unit * draft.count;
+
+  const ticketIds = draft.selected.map(seatId=>{
+    const ticketId = 'PHM-' + Math.random().toString(36).slice(2,6).toUpperCase() + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
+    eventData.seats[seatId] = { ticketId, orderId, name: draft.name };
+    eventData.registrations[ticketId] = {
+      seat: seatId, orderId, name: draft.name, email: draft.email, phone: draft.phone,
+      checkedIn:false, ts: Date.now()
+    };
+    if(eventData.holds[seatId]) delete eventData.holds[seatId];
+    return ticketId;
+  });
+
+  eventData.orders[orderId] = {
     name: draft.name, email: draft.email, phone: draft.phone,
-    seats: draft.selected.slice(), checkedIn:false, ts: Date.now(),
+    seats: draft.selected.slice(), ticketIds,
     package: draft.pkg, packageLabel: pkg.label, isSponsor: draft.pkg==='sponsor',
-    amountPaid: amountPaid, refno: draft.refno, sender: draft.sender,
-    receiptId: receiptId, paidTs: Date.now()
+    unitPrice: pkg.unit, amountPaid: totalAmount,
+    refno: draft.refno, sender: draft.sender,
+    receiptId, ts: Date.now(), paidTs: Date.now()
   };
+
   await saveEvent();
-  myTicketIds.push(ticketId);
+  myTicketIds.push(orderId);
   await saveMyTickets();
-  currentTicket = ticketId;
-  renderDossier(ticketId);
+  currentOrder = orderId;
+  currentTicketIdx = 0;
+  renderDossier(orderId, 0);
   document.getElementById('nav-dossier').disabled=false;
   goTo('dossier');
+  sendReceiptEmails(eventData.orders[orderId], orderId);
 }
 
-function renderDossier(ticketId){
+function renderDossier(orderId, idx){
+  const order = eventData.orders[orderId];
+  if(!order) return;
+  idx = Math.max(0, Math.min(order.ticketIds.length - 1, idx || 0));
+  currentOrder = orderId;
+  currentTicketIdx = idx;
+
+  const ticketId = order.ticketIds[idx];
   const reg = eventData.registrations[ticketId];
-  if(!reg) return;
-  document.getElementById('tk-name').textContent = reg.name;
-  document.getElementById('tk-seats').textContent = reg.seats.join(', ');
-  document.getElementById('tk-email').textContent = reg.email;
+
+  document.getElementById('tk-name').textContent = order.name;
+  document.getElementById('tk-seat').textContent = reg.seat;
+  document.getElementById('tk-email').textContent = order.email;
   document.getElementById('tk-id').textContent = 'ID: ' + ticketId;
   const pill = document.getElementById('tk-status');
   pill.textContent = reg.checkedIn ? 'Checked in' : 'Not checked in';
@@ -808,37 +1200,29 @@ function renderDossier(ticketId){
   qrHost.innerHTML='';
   new QRCode(qrHost, { text: ticketId, width:120, height:120, colorDark:'#0a0a0d', colorLight:'#ffffff' });
 
-  document.getElementById('rc-package').textContent = reg.packageLabel + (reg.isSponsor ? ' (Sponsor)' : '');
-  document.getElementById('rc-seats').textContent = reg.seats.join(', ');
-  document.getElementById('rc-refno').textContent = reg.refno || '—';
-  document.getElementById('rc-id').textContent = reg.receiptId || '—';
-  document.getElementById('rc-total').textContent = peso(reg.amountPaid || 0);
+  const switcher = document.getElementById('tk-switcher');
+  if(order.ticketIds.length > 1){
+    switcher.style.display = 'flex';
+    document.getElementById('tk-switch-label').textContent = 'Ticket ' + (idx+1) + ' of ' + order.ticketIds.length + ' — Seat ' + reg.seat;
+    document.getElementById('tk-prev').disabled = idx === 0;
+    document.getElementById('tk-next').disabled = idx === order.ticketIds.length - 1;
+  } else {
+    switcher.style.display = 'none';
+  }
+
+  document.getElementById('rc-package').textContent = order.packageLabel + (order.isSponsor ? ' (Sponsor)' : '');
+  document.getElementById('rc-seats').textContent = order.seats.join(', ');
+  document.getElementById('rc-refno').textContent = order.refno || '—';
+  document.getElementById('rc-id').textContent = order.receiptId || '—';
+  document.getElementById('rc-total').textContent = peso(order.amountPaid || 0);
 }
 
-function emailReceipt(){
-  if(!currentTicket) return;
-  const reg = eventData.registrations[currentTicket];
-  if(!reg) return;
-  const subject = 'Your Project PhilMary Receipt — ' + reg.receiptId;
-  const body = [
-    'PROJECT PHILMARY — PAYMENT RECEIPT',
-    '',
-    'Name: ' + reg.name,
-    'Ticket ID: ' + currentTicket,
-    'Receipt ID: ' + reg.receiptId,
-    'Package: ' + reg.packageLabel + (reg.isSponsor ? ' (Sponsor)' : ''),
-    'Seats: ' + reg.seats.join(', '),
-    'Amount Paid: ' + peso(reg.amountPaid || 0),
-    'Payment Reference No.: ' + (reg.refno || '—'),
-    '',
-    'Keep the Ticket ID and QR code above for check-in at SM MOA IMAX.'
-  ].join('\n');
-  window.location.href = 'mailto:' + encodeURIComponent(reg.email)
-    + '?subject=' + encodeURIComponent(subject)
-    + '&body=' + encodeURIComponent(body);
+function dossierNav(delta){
+  if(!currentOrder) return;
+  renderDossier(currentOrder, currentTicketIdx + delta);
 }
 
-function goTo(step){
+function showPanel(step){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('show'));
   document.getElementById('panel-'+step).classList.add('show');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.step===step));
@@ -848,16 +1232,27 @@ function goTo(step){
   if(step==='command') renderCommand();
 }
 
+async function goTo(step){
+  if(step === 'seats'){
+    await enterQueueOrSeats();
+    return;
+  }
+  if(step !== 'payment' && step !== 'queue'){
+    releaseActiveSlot(); // no longer contending for a live seat-selection slot
+  }
+  showPanel(step);
+}
+
 document.querySelectorAll('.nav button').forEach(b=>{
   b.addEventListener('click', ()=>{ if(!b.disabled) goTo(b.dataset.step); });
 });
 
 async function renderCommand(){
   await loadEvent();
-  const regs = Object.entries(eventData.registrations);
-  document.getElementById('stat-total').textContent = regs.length;
+  const tickets = Object.entries(eventData.registrations);
+  document.getElementById('stat-total').textContent = Object.keys(eventData.orders).length;
   document.getElementById('stat-seats').textContent = Object.keys(eventData.seats).length;
-  document.getElementById('stat-checked').textContent = regs.filter(([,r])=>r.checkedIn).length;
+  document.getElementById('stat-checked').textContent = tickets.filter(([,r])=>r.checkedIn).length;
   renderManifest();
 }
 
@@ -868,20 +1263,22 @@ function renderManifest(){
   body.innerHTML='';
   const rows = Object.entries(eventData.registrations).filter(([id,r])=>{
     if(!q) return true;
-    return r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q) || id.toLowerCase().includes(q);
+    return r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q)
+      || id.toLowerCase().includes(q) || String(r.seat).toLowerCase().includes(q);
   });
   if(rows.length===0){ empty.style.display='block'; return; } else { empty.style.display='none'; }
   rows.sort((a,b)=>a[1].ts-b[1].ts).forEach(([id,r])=>{
+    const order = eventData.orders[r.orderId] || {};
+    const pkgLabel = (order.packageLabel || '—') + (order.isSponsor ? ' ★' : '');
     const tr = document.createElement('tr');
-    const pkgLabel = (r.packageLabel || '—') + (r.isSponsor ? ' ★' : '');
     tr.innerHTML = `
       <td>${escapeHtml(r.name)}</td>
       <td>${escapeHtml(r.email)}</td>
-      <td>${r.seats.join(', ')}</td>
+      <td>${r.seat}</td>
       <td>${id}</td>
       <td>${escapeHtml(pkgLabel)}</td>
-      <td>${peso(r.amountPaid || 0)}</td>
-      <td>${escapeHtml(r.refno || '—')}</td>
+      <td>${peso(order.unitPrice || 0)}</td>
+      <td>${escapeHtml(order.refno || '—')}</td>
       <td class="${r.checkedIn?'':'pending'}">${r.checkedIn?'Checked in':'Pending'}</td>
       <td><button class="chk ${r.checkedIn?'done':''}" onclick="toggleCheckin('${id}')">${r.checkedIn?'Undo':'Check In'}</button></td>
     `;
@@ -895,7 +1292,10 @@ async function toggleCheckin(id){
   eventData.registrations[id].checkedIn = !eventData.registrations[id].checkedIn;
   await saveEvent();
   renderCommand();
-  if(currentTicket===id) renderDossier(id);
+  if(currentOrder){
+    const order = eventData.orders[currentOrder];
+    if(order && order.ticketIds.includes(id)) renderDossier(currentOrder, currentTicketIdx);
+  }
 }
 
 function escapeHtml(s){
@@ -924,7 +1324,17 @@ function escapeHtml(s){
     }catch(e){}
   }
 
-  function setTheme(mode){
+  function setTheme(mode, opts){
+    opts = opts || {};
+    const animate = opts.animate !== false;
+    const reduceMotion = document.body.classList.contains('a11y-reduce-motion');
+    if(animate && !reduceMotion){
+      document.body.classList.add('theme-transitioning');
+      clearTimeout(window.__themeTransitionTimer);
+      window.__themeTransitionTimer = setTimeout(()=>{
+        document.body.classList.remove('theme-transitioning');
+      }, 720);
+    }
     document.body.classList.toggle('theme-light', mode === 'light');
     document.getElementById('btn-theme-dark').setAttribute('aria-pressed', String(mode === 'dark'));
     document.getElementById('btn-theme-light').setAttribute('aria-pressed', String(mode === 'light'));
@@ -948,7 +1358,7 @@ function escapeHtml(s){
     try{ saved = JSON.parse(localStorage.getItem(A11Y_KEY) || 'null'); }catch(e){}
 
     if(saved){
-      setTheme(saved.theme === 'light' ? 'light' : 'dark');
+      setTheme(saved.theme === 'light' ? 'light' : 'dark', {animate:false});
       applyA11y('high-contrast', saved['high-contrast']);
       applyA11y('large-text', saved['large-text']);
       applyA11y('reduce-motion', saved['reduce-motion']);
@@ -957,7 +1367,7 @@ function escapeHtml(s){
 
     // No saved preference — follow the device.
     const mq = window.matchMedia;
-    if(mq && mq('(prefers-color-scheme: light)').matches) setTheme('light');
+    if(mq && mq('(prefers-color-scheme: light)').matches) setTheme('light', {animate:false});
     if(mq && mq('(prefers-reduced-motion: reduce)').matches) applyA11y('reduce-motion', true);
     if(mq && mq('(prefers-contrast: more)').matches) applyA11y('high-contrast', true);
   })();
@@ -989,8 +1399,8 @@ function escapeHtml(s){
 
   var originalSetTheme = window.setTheme;
   if(typeof originalSetTheme === 'function'){
-    window.setTheme = function(theme){
-      originalSetTheme(theme);
+    window.setTheme = function(theme, opts){
+      originalSetTheme(theme, opts);
       syncSpaceSwitch();
     };
   }
