@@ -85,11 +85,18 @@
     transition: background var(--motion), color var(--motion);
   }
 
+
   /* spaceship cabin-light switch */
   .space-switch-wrap{
     display:flex;align-items:center;gap:8px;
     border:1px solid var(--line);padding:3px 6px 3px 9px;
     background:var(--panel);
+  }
+
+  @media (max-width: 680px){
+    .space-switch-wrap{
+      align-items: left;
+    }
   }
 
   .space-switch-label{
@@ -242,6 +249,7 @@
   .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line);}
   .btn.ghost:hover{border-color:var(--crimson-bright);color:var(--crimson-bright);}
   .btn:disabled{opacity:.35;cursor:not-allowed;background:var(--dim);border-color:var(--dim);}
+  @media (max-width: 680px){.btn.ghost{margin-bottom: 15px}}
 
   .mini-map{border:1px solid var(--line);padding:14px;background:var(--panel-2);}
   .mini-map .screen{text-align:center;font-size:calc(9px * var(--fs-scale));letter-spacing:4px;color:var(--muted);border-bottom:2px solid var(--crimson-dim);padding-bottom:6px;margin-bottom:10px;}
@@ -249,10 +257,8 @@
   .mini-map .seat{width:10px;height:8px;background:var(--dim);}
   .mini-map .seat.b{background:var(--crimson);}
 
-      @media (max-width: 680px){
-      .cta-row {display: flex; align-items: center;}
-      .mini-map {{border:1px solid var(--line);background:var(--panel-2);padding:26px 18px;overflow-x:auto;}}
-  }
+      @media (max-width: 480px){
+      .fact-list li {width: 95%} .panel {overflow-x:auto;} .mini-map{margin-right: 23px}}
 
   /* form */
   .field{margin-bottom:16px;}
@@ -299,6 +305,7 @@
     display:grid;grid-template-columns:1fr auto;gap:0;border:1px solid var(--crimson-dim);background:var(--panel-2);
     position:relative;
   }
+  @media (max-width: 680px){.ticket {overflow-x: auto;}}
   .ticket-main{padding:24px;border-right:1px dashed var(--line);}
   .ticket-stub{padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-width:170px;}
   .ticket .eyebrow{font-size:calc(9.5px * var(--fs-scale));letter-spacing:3px;color:var(--crimson-bright);text-transform:uppercase;}
@@ -574,23 +581,23 @@
         <div class="pkg-check"></div>
         <div class="pkg-eyebrow">Standard</div>
         <div class="pkg-name">Ticket Only</div>
-        <div class="pkg-price">₱850<span style="font-size:11px;color:var(--muted);">&nbsp;/ seat</span></div>
+        <div class="pkg-price">₱650<span style="font-size:11px;color:var(--muted);">&nbsp;/ seat</span></div>
         <div class="pkg-note">IMAX screening seat, no extras.</div>
       </div>
       <div class="pkg-card" data-pkg="bundle" onclick="selectPackage('bundle')">
         <div class="pkg-check"></div>
         <div class="pkg-eyebrow">Popular</div>
         <div class="pkg-name">Ticket + Merch</div>
-        <div class="pkg-price">₱1500<span style="font-size:11px;color:var(--muted);">&nbsp;/ seat</span></div>
-        <div class="pkg-note">Seat + CSE Access + mission patch, pin, and postcard set.</div>
+        <div class="pkg-price">₱950<span style="font-size:11px;color:var(--muted);">&nbsp;/ seat</span></div>
+        <div class="pkg-note">Seat + mission patch, pin, and postcard set.</div>
       </div>
       <div class="pkg-card" data-pkg="sponsor" onclick="selectPackage('sponsor')">
         <div class="pkg-check"></div>
         <div class="pkg-eyebrow">Mission Backer</div>
         <div class="pkg-name">Sponsor</div>
-        <div class="pkg-price">₱3,000<span style="font-size:11px;color:var(--muted);">&nbsp;/ seat</span></div>
-        <div class="pkg-note">Seat + CSE Access + merch + name listed as a mission sponsor.</div>
-      </div> 
+        <div class="pkg-price">₱2,500<span style="font-size:11px;color:var(--muted);">&nbsp;/ seat</span></div>
+        <div class="pkg-note">Seat + merch + name listed as a mission sponsor.</div>
+      </div>
     </div>
 
     <div class="pay-summary">
