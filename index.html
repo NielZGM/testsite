@@ -164,7 +164,9 @@
   @media (pointer:coarse){
     .a11y-btn{min-height:40px;padding:9px 12px;}
   }
-
+  @media(max-width:680px){
+    .a11y-bar{justify-content:center;}
+  }
   .wrap{max-width:920px;margin:0 auto;padding:22px 18px 60px;}
 
   /* header */
@@ -209,12 +211,7 @@
   .nav button:hover{border-color:var(--crimson-bright);color:var(--ink);}
   .nav button.active{background:var(--crimson);border-color:var(--crimson-bright);color:#fff;}
   .nav button:disabled{opacity:.35;cursor:not-allowed;}
-
-  @media (max-width: 680px){
-    .nav {
-      justify-content: center;
-    }
-  }
+ @media (max-width: 680px){.nav {justify-content: left;}}
 
   .measure{display:flex;align-items:center;gap:8px;color:var(--crimson-dim);margin:18px 0;}
   .measure .l{flex:1;height:1px;background:var(--line);}
@@ -330,6 +327,7 @@
   .empty-note{color:var(--muted);font-size:calc(12px * var(--fs-scale));padding:20px 0;text-align:center;}
 
   .foot{margin-top:30px;text-align:center;font-size:calc(10px * var(--fs-scale));color:var(--dim);letter-spacing:2px;text-transform:uppercase;}
+  @media (max-width:480px){.stat{min-width:100px}}
 
   /* payment */
   .pkg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px;}
@@ -456,7 +454,7 @@
   <div class="nav">
     <button data-step="brief" class="active">01 Briefing</button>
     <button data-step="enlist">02 Enlist</button>
-    <button data-step="seats">03 Seat Assignment</button>
+    <button data-step="seats">03 Seat No.</button>
     <button data-step="payment" id="nav-payment" disabled>04 Payment</button>
     <button data-step="dossier" id="nav-dossier" disabled>05 Dossier</button>
     <button data-step="command">06 Command Check-In</button>
